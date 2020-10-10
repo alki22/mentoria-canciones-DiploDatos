@@ -1,0 +1,292 @@
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "# Mentoría 'de cómo clasificar en géneros a las canciones'\n",
+    "## Práctico IV : Aprendizaje no supervisado"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "**Antes de empezar:**\n",
+    "- [Instalar spaCy y el modelo de lenguaje con el que van a trabajar](https://spacy.io/models#quickstart)\n",
+    "\n",
+    "**Consideraciones:**\n",
+    "- Se evalúa el estilo y prolijidad del código.\n",
+    "- Se permite hacer trabajo extra, siempre y cuando las actividades básicas estén resueltas.\n",
+    "\n",
+    "**Recomendación:**\n",
+    "- Hay muchos ejemplos de código en internet, no se sientan obligados a implementar todo desde cero.\n",
+    "- La cantidad de líneas de código del esqueleto no es estricta, pueden completarlo con más (o menos) líneas."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Librerías"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "!pip3 install spotipy\n",
+    "!pip3 install pandas\n",
+    "!pip3 install spacy\n",
+    "!pip3 install pymusixmatch\n",
+    "!pip3 install nltk\n",
+    "!pip3 install sklearn\n",
+    "\n",
+    "# Agregar las librerías extra que se utilicen en esta celda y la siguiente"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Dependencias y acceso a APIs"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import pandas as pd\n",
+    "import numpy as np\n",
+    "import spotipy\n",
+    "import spacy\n",
+    "from spotipy.oauth2 import SpotifyClientCredentials\n",
+    "from musixmatch import Musixmatch\n",
+    "\n",
+    "client_id = '46b333d567314a89a6254b6c6b054be6'\n",
+    "client_secret = '9d922c3613e441518349dcf55f7d5853'\n",
+    "client_credentials_manager = SpotifyClientCredentials(client_id=client_id, client_secret=client_secret)\n",
+    "\n",
+    "nlp = spacy.load(\"en_core_web_sm\") # completar con el modelo que van a utilizar\n",
+    "\n",
+    "sp = spotipy.Spotify(client_credentials_manager=client_credentials_manager)\n",
+    "musixmatch = Musixmatch('1aa5272f4402bf2f082ad2f3958c2c62') # se puede reemplazar por otra API si da mejores resultados"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Funciones para gráficos\n",
+    "Estas funciones se utilizarán __sólo en el inciso 4)__"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import matplotlib.pyplot as plt\n",
+    "\n",
+    "def plot2D(title, X, colors):\n",
+    "    fig = plt.figure(figsize=(12, 8))\n",
+    "    ax = fig.add_subplot(111)\n",
+    "    scatter = ax.scatter(X[:, 0], X[:, 1], c=colors)\n",
+    "    plt.xlim(-50, 200)\n",
+    "    plt.ylim(-50, 170)\n",
+    "    ax.set_title(title)\n",
+    "    ax.set_xlabel('First component')\n",
+    "    ax.set_ylabel('Second Component')\n",
+    "    plt.colorbar(scatter);\n",
+    "    plt.plot()\n",
+    "    \n",
+    "def plot3D(title, X, colors):\n",
+    "    fig = plt.figure(figsize=(12, 8))\n",
+    "    ax = fig.add_subplot(111, projection='3d')\n",
+    "    scatter = ax.scatter(X[:, 0], X[:, 1], X[:, 2], c=colors)\n",
+    "    plt.xlim(-50, 200)\n",
+    "    plt.ylim(-50, 170)\n",
+    "    ax.set_title(title)\n",
+    "    ax.set_xlabel('First component')\n",
+    "    ax.set_ylabel('Second component')\n",
+    "    ax.set_zlabel('Third component')\n",
+    "    plt.colorbar(scatter)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### 1) Recopilar los datos obtenidos en los prácticos anteriores\n",
+    "\n",
+    "Para esta parte consideraremos [la playlist colaborativa de la mentoría](https://open.spotify.com/playlist/2IuD0qZb14cji5y52crdsO?si=nfHRPDquQRyotEcXc4tG7Q), de esta obtendremos:\n",
+    "- Las features del audio de las canciones\n",
+    "- Las features textuales de sus letras\n",
+    "\n",
+    "Además es necesario aplicar el mismo preprocesamiento que aplicamos en los prácticos anteriores para ambos tipos de features (el preprocesamiento del p1 a las features de audio y el de p2 al de features textuales). En este caso la etiqueta no se utilizará para el proceso de clasificación dada la naturaleza no supervisada de nuestro clasificador.\n",
+    "\n",
+    "Luego, se obtendrá como resultado el conjunto de variables X.\n",
+    "\n",
+    "La última tarea de este inciso será aplicar escalado estándar a las features de X. La estandarización consiste en  reescalar las features de modo que estas tengan las propiedades de una [distribución normal](https://es.wikipedia.org/wiki/Distribuci%C3%B3n_normal) estándar (media = 0 y desviación estándar = 1). Esta tarea es [importante](https://scikit-learn.org/stable/auto_examples/preprocessing/plot_scaling_importance.html) en nuestro caso, ya que permite una mejor visualización de los clusters obtenidos por nuestro algoritmo.\n",
+    "\n",
+    "**Recomendaciones:**\n",
+    "- Obtener las features por separado y hacer un join de los datasets.\n",
+    "- Prestar atención a la [documentación de sklearn](https://scikit-learn.org/stable/)\n",
+    "- Si usan features categóricas, ENCODEARLAS!"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "from sklearn.preprocessing import StandardScaler\n",
+    "\"\"\"\n",
+    "Obtener features de audio\n",
+    "Obtener features de texto\n",
+    "Combinarlas en un DataFrame\n",
+    "\"\"\"\n",
+    "X_unscaled = \n",
+    "X_scaled = "
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### 2) Elegir un número óptimo de clusters\n",
+    "\n",
+    "En este punto buscaremos el número de clusters que queremos para correr K-means obteniendo los mejores resultados. Para esto utilizaremos dos criterios de selección:\n",
+    "- Primero, el \"método del codo\" (Elbow method). Este es una técnica (heurística) muy popular en el aprendizaje no supervisado que consiste en correr el algoritmo con diferentes cantidades __k__ de clusters, calculando para cada caso la suma de distancias cuadradas de cada punto al centro asignado para su cluster (PISTA: estos valores se pueden obtener como un atributo del clasificador luego de ajustarlo a __X_scaled__). Luego graficamos para cada __k__ el valor obtenido, esto nos dará un gráfico con forma de brazo (curva) en el cual el codo del mismo (el punto de inflexión de la curva) es un buen valor para __k__.\n",
+    "- Segundo, el [Silhouette Score](https://scikit-learn.org/stable/modules/generated/sklearn.metrics.silhouette_score.html) nos da un coeficiente que va de -1 (peor) a 1 (mejor) y que nos dice qué tan similar es un punto a los demás dentro de su cluster y qué tan diferente es de los puntos en el resto de los clusters. En este caso nos quedaremos con el valor de k que maximice el Silhouette score para __X_scaled__.\n",
+    "\n",
+    "La tarea consiste en obtener para cada caso el k que de mejores resultados de acuerdo a los gráficos obtenidos."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "from sklearn.cluster import KMeans\n",
+    "from sklearn.metrics import silhouette_score\n",
+    "\n",
+    "min_n_clusters = 3\n",
+    "max_n_clusters = # Cantidad de géneros\n",
+    "# Puede agregar saltos en el intervalo si las corridas demoran demasiado o definir su propio intervalo.\n",
+    "n_clusters = range(min_clusters, max_clusters)\n",
+    "\n",
+    "for k in n_clusters:\n",
+    "\"\"\"\n",
+    "    Correr K-Means\n",
+    "    Calcular suma de distancias cuadradas para el método del codo\n",
+    "    Calcular silhouette score\n",
+    "\"\"\"\n",
+    "# Gráficos"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "Los valores de k elegidos de acuerdo a estas dos reglas son:\n",
+    "- k1 = \n",
+    "- k2 = "
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### 3) Correr K-Means con los k elegidos\n",
+    "\n",
+    "En este punto corremos de nuevo el algoritmo con los __k1__ y __k2__ elegidos en __2)__ y almacenaremos los resultados obtenidos en __X_preds_k1__ y __X_preds_k2__. Recuerden que el output de la predicción es un conjunto de __n__ (= #Canciones) etiquetas que nos dicen en qué cluster está cada canción __Xi__, por lo que deberán crear una tabla o mecanismo para obtener, además de las predicciones, los clusters como listas de canciones para cada __k__ elegido para su posterior análisis en el informe."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "X_preds_k1 = \n",
+    "X_preds_k2 =\n",
+    "\n",
+    "song_clusters_k1 = \n",
+    "song_clusters_k2 = "
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### 4) Graficar los clusters obtenidos\n",
+    "\n",
+    "Para esta actividad utilizaremos las funciones __plot2D__ y __plot3D__ para graficar los clusters que obtuvimos en el ejercicio anterior. Previamente, se debe realizar una reducción de dimensiones al conjunto de datos __X_scaled__ para poder graficar los puntos dos y tres dimensiones, respectivamente. Por último, los colores de los puntos graficados estarán dados por cluster al que pertenece cada canción."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "from sklearn.decomposition import PCA\n",
+    "\n",
+    "X_scaled_2D =\n",
+    "X_scaled_3D =\n",
+    "\n",
+    "plot2D('K-Means with k = ', , )\n",
+    "plot3D('K-Means with k = ', , )"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### 5) Informe\n",
+    "\n",
+    "Por último, deberán escribir un informe en el cual:\n",
+    "1. Muestren los clusters obtenidos en __3)__ como listas de canciones\n",
+    "2. Describan cualitativamente (e intuitivamente) estos clusters para cada __k__ elegido de acuerdo al contenido de los mismos, por ejemplo: \n",
+    "    - El cluster 1 presenta canciones de géneros subsaharianos y es el más amplio debido a que..., el 2 de géneros tribales del cuerno de África, el 3...\n",
+    "    - Los clusters x0, x1, ... , xn no presentan algún patrón observable, pero xn+1 y xn+4 tienen...\n",
+    "4. Digan cuál k les dio resultados más coherentes y/o interpretables\n",
+    "5. Comparen los resultados obtenidos con aprendizaje no supervisado (con el mejor de los dos k) vs supervisado de manera cualitativa. Por ejemplo: nos parece mejor/peor/distinto/indistinto el modelo de aprendizaje no supervisado/supervisado en esta tarea porque..."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": []
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.6.9"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 2
+}
